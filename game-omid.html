@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stickman RPG: Coins Restored</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body { background: #111; color: white; text-align: center; font-family: sans-serif; overflow: hidden; margin: 0; touch-action: manipulation; }
+        canvas { background: #87CEEB; display: block; margin: 0 auto; border-bottom: 5px solid #333; }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px; text-align: left; border: 1px solid gold; }
+        #shop { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; padding: 20px; border: 4px solid gold; border-radius: 15px; width: 320px; z-index: 100; max-height: 80vh; overflow-y: auto; }
+        .shop-item { background: #333; margin: 10px 0; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #555; }
+        button { cursor: pointer; padding: 8px; background: gold; border: none; font-weight: bold; border-radius: 4px; }
+        #shop-toggle { position: absolute; top: 10px; right: 10px; padding: 12px; background: gold; border: none; border-radius: 5px; font-weight: bold; }
+        #controls { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; justify-content: space-around; pointer-events: none; }
+        .btn { width: 70px; height: 70px; background: rgba(255,255,255,0.3); border: 2px solid white; border-radius: 50%; pointer-events: auto; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <b>LEVEL: <span id="lvlVal">1</span></b><br>
+        💰 Coins: <span id="coinCount">0</span><br>
+        🏃 Dist: <span id="distVal">0</span>m
+    </div>
+    <button id="shop-toggle" onclick="toggleShop()">🛒 SHOP (S)</button>
+    
+    <div id="shop">
+        <h2 style="color:gold; margin-top:0;">EQUIPMENT</h2>
+        <div class="shop-item"><div><b>Blue Pants</b><span>Double Jump!</span></div><button id="btn-pants" onclick="buy('pants', 60)">60 💰</button></div>
+        <div class="shop-item"><div><b>Top Hat</b><span>Triple Jump!</span></div><button id="btn-hat" onclick="buy('hat', 100)">100 💰</button></div>
+        <div class="shop-item"><div><b>Red Shirt</b><span>Speed Boost!</span></div><button id="btn-shirt" onclick="buy('shirt', 40)">40 💰</button></div>
+        <div class="shop-item"><div><b>Neon Shoes</b><span>Magnet!</span></div><button id="btn-shoes" onclick="buy('shoes', 50)">50 💰</button></div>
+        <button onclick="toggleShop()" style="width:100%; background:#ff4444; color:white; margin-top:10px;">CLOSE</button>
+    </div>
+
+    <canvas id="game"></canvas>
+    <div id="controls"><div class="btn" id="lBtn">A</div><div class="btn" id="jBtn">W</div><div class="btn" id="rBtn">D</div></div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = 400;
+
+        let state = { coins: 0, shopOpen: false, inv: { hat: false, shirt: false, pants: false, shoes: false }, level: 1 };
+        let platforms = [{ x: 0, y: 280, w: 800, type: 'normal', active: true, timer: 0, respawnTimer: 0, offset: 0, dir: 1, coins: [{x:200, y:-40, collected:false}, {x:400, y:-40, collected:false}] }];
+        let player = { x: 50, y: 200, w: 20, h: 40, dx: 0, dy: 0, grounded: false, jumps: 0, maxJumps: 1 };
+        let monster = { x: -800, y: 240, active: false };
+        let checkpoint = { x: 50, y: 200 };
+        let keys = { a: false, d: false };
+        let cameraX = 0, lastX = 800, lastY = 280;
+
+        function toggleShop() {
+            state.shopOpen = !state.shopOpen;
+            document.getElementById('shop').style.display = state.shopOpen ? 'block' : 'none';
+        }
+
+        function buy(item, price) {
+            if (state.coins >= price && !state.inv[item]) {
+                state.coins -= price; state.inv[item] = true;
+                document.getElementById('coinCount').innerText = state.coins;
+                document.getElementById('btn-'+item).innerText = "OWNED";
+                if(state.inv.pants) player.maxJumps = 2;
+                if(state.inv.hat) player.maxJumps = 3;
+            }
+        }
+
+        function spawn() {
+            let gap = 150 + Math.random() * 80;
+            let width = 200 + Math.random() * 200;
+            let newY = Math.max(160, Math.min(320, lastY + (Math.random() - 0.5) * 120));
+            let type = 'normal';
+            if (state.level >= 2) {
+                let r = Math.random();
+                if (r > 0.75) type = 'disappear';
+                else if (r > 0.5) type = 'moving';
+            }
+
+            // Create 3 coins for the new platform
+            let pCoins = [];
+            for(let i=0; i<3; i++) {
+                pCoins.push({ x: 20 + (Math.random() * (width-40)), y: -30 - (Math.random() * 40), collected: false });
+            }
+
+            platforms.push({ x: lastX + gap, y: newY, w: width, type: type, offset: 0, dir: 1, timer: 0, respawnTimer: 0, active: true, coins: pCoins });
+            lastX += gap + width; lastY = newY;
+        }
+
+        function jump() {
+            if (player.grounded) { player.dy = -15; player.grounded = false; player.jumps = 1; }
+            else if (player.jumps < player.maxJumps) { player.dy = -12; player.jumps++; }
+        }
+
+        window.addEventListener('keydown', e => {
+            if (e.code === 'KeyD') keys.d = true;
+            if (e.code === 'KeyA') keys.a = true;
+            if (e.code === 'KeyW') jump();
+            if (e.code === 'KeyS') toggleShop();
+        });
+        window.addEventListener('keyup', e => { if (e.code === 'KeyD') keys.d = false; if (e.code === 'KeyA') keys.a = false; });
+
+        // Touch controls
+        const input = (id, k) => {
+            const b = document.getElementById(id);
+            b.addEventListener('touchstart', (e) => { e.preventDefault(); if(id === 'jBtn') jump(); else keys[k] = true; });
+            b.addEventListener('touchend', (e) => { if(id !== 'jBtn') keys[k] = false; });
+        };
+        input('lBtn', 'a'); input('rBtn', 'd'); input('jBtn', 'w');
+
+        function respawn() {
+            player.x = checkpoint.x; player.y = checkpoint.y - 50;
+            player.dy = 0; player.dx = 0;
+            monster.x = player.x - 700;
+        }
+
+        function update() {
+            if (state.shopOpen) return;
+            state.level = Math.floor(player.x / 2500) + 1;
+            document.getElementById('lvlVal').innerText = state.level;
+
+            if (state.level >= 2) {
+                if (!monster.active) { monster.active = true; monster.x = player.x - 600; }
+                monster.x += 5.1;
+                monster.y += (player.y - monster.y) * 0.1;
+                if (Math.abs(player.x - monster.x) < 25 && Math.abs(player.y - monster.y) < 40) respawn();
+            }
+
+            let moveSpeed = state.inv.shirt ? 14 : 10;
+            player.dx = keys.d ? moveSpeed : (keys.a ? -moveSpeed : 0);
+            player.x += player.dx;
+            player.dy += 0.8;
+            if (player.dy > 15) player.dy = 15;
+            player.y += player.dy;
+
+            let onAnyFloor = false;
+
+            platforms.forEach(p => {
+                if (!p.active) {
+                    p.respawnTimer++;
+                    if (p.respawnTimer > 90) { 
+                        p.active = true; 
+                        p.timer = 0; 
+                        p.respawnTimer = 0; 
+                        // Reset coins when platform respawns
+                        p.coins.forEach(c => c.collected = false);
+                    }
+                    return;
+                }
+
+                if (p.type === 'moving') {
+                    p.offset += 3 * p.dir;
+                    if (Math.abs(p.offset) > 120) p.dir *= -1;
+                }
+
+                let curX = p.x + (p.type === 'moving' ? p.offset : 0);
+
+                // Collision
+                if (player.x + player.w > curX && player.x < curX + p.w) {
+                    if (player.y + player.h >= p.y && player.y + player.h <= p.y + player.dy + 10 && player.dy >= 0) {
+                        player.y = p.y - player.h;
+                        player.dy = 0;
+                        player.grounded = true;
+                        player.jumps = 0;
+                        onAnyFloor = true;
+                        if (p.type === 'moving') player.x += 3 * p.dir;
+                        if (p.type === 'disappear') {
+                            p.timer++;
+                            if (p.timer > 25) p.active = false;
+                        }
+                        if (p.type === 'normal') {
+                            checkpoint.x = p.x + 20;
+                            checkpoint.y = p.y - player.h;
+                        }
+                    }
+                }
+
+                // Coin Collection & Magnet
+                p.coins.forEach(c => {
+                    if (c.collected) return;
+                    let coinX = curX + c.x;
+                    let coinY = p.y + c.y;
+                    
+                    let dx = (player.x + 10) - coinX;
+                    let dy = (player.y + 20) - coinY;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    let magnetRange = state.inv.shoes ? 120 : 30;
+
+                    if (dist < magnetRange) {
+                        c.collected = true;
+                        state.coins++;
+                        document.getElementById('coinCount').innerText = state.coins;
+                    }
+                });
+            });
+
+            if (!onAnyFloor) player.grounded = false;
+            if (player.y > 600) respawn();
+            
+            cameraX += (player.x - canvas.width / 3 - cameraX) * 0.1;
+            if (lastX < player.x + canvas.width) spawn();
+            document.getElementById('distVal').innerText = Math.floor(player.x/10);
+        }
+
+        function drawStick(x, y, color, isMonster) {
+            let legM = (player.dx !== 0 || isMonster) ? Math.sin(Date.now() / 60) * 12 : 0;
+            ctx.strokeStyle = color; ctx.lineWidth = 3;
+            if(isMonster) { ctx.shadowBlur = 10; ctx.shadowColor = "red"; }
+            ctx.beginPath();
+            ctx.arc(x + 10, y + 6, 6, 0, Math.PI*2);
+            ctx.moveTo(x + 10, y + 12); ctx.lineTo(x + 10, y + 26);
+            ctx.moveTo(x + 10, y + 26); ctx.lineTo(x + 10 - legM, y + 40);
+            ctx.moveTo(x + 10, y + 26); ctx.lineTo(x + 10 + legM, y + 40);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            if(isMonster) { ctx.fillStyle = "red"; ctx.fillRect(x+7, y+4, 2, 2); ctx.fillRect(x+11, y+4, 2, 2); }
+        }
+
+        function draw() {
+            ctx.fillStyle = "#87CEEB"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.save(); ctx.translate(-cameraX, 0);
+            
+            platforms.forEach(p => {
+                if (!p.active) return;
+                let curX = p.x + (p.type === 'moving' ? p.offset : 0);
+                ctx.fillStyle = p.type === 'moving' ? "#9370DB" : (p.type === 'disappear' ? "#FF6347" : "#4CAF50");
+                ctx.fillRect(curX, p.y, p.w, 15);
+                ctx.fillStyle = "#8B4513"; ctx.fillRect(curX, p.y + 15, p.w, 500);
+
+                // Draw Coins
+                p.coins.forEach(c => {
+                    if (!c.collected) {
+                        ctx.fillStyle = "gold";
+                        ctx.shadowBlur = 5; ctx.shadowColor = "yellow";
+                        ctx.beginPath();
+                        ctx.arc(curX + c.x, p.y + c.y, 7, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                });
+            });
+
+            if (monster.active) drawStick(monster.x, monster.y, "#000", true);
+            drawStick(player.x, player.y, "black", false);
+
+            let px = player.x + 10, py = player.y;
+            if(state.inv.shirt) { ctx.fillStyle = "red"; ctx.fillRect(px-10, py+12, 20, 14); }
+            if(state.inv.pants) { ctx.fillStyle = "blue"; ctx.fillRect(px-8, py+24, 16, 12); }
+            if(state.inv.hat) { ctx.fillStyle = "#333"; ctx.fillRect(px-10, py-4, 20, 4); ctx.fillRect(px-6, py-14, 12, 10); }
+
+            ctx.restore();
+        }
+
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
+        loop();
+    </script>
+</body>
+</html>
