@@ -1,0 +1,166 @@
+<!<!DOCTYPE html>
+<html>
+<head>
+    <title>Artemis 2: Intergalactic</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none; text-shadow: 2px 2px 4px #000; }
+        #warp-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ffff; font-size: 30px; display: none; font-weight: bold; }
+        .hint { color: #00ffcc; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1 id="target">Earth Orbit</h1>
+        <p>POV: <span id="povName">Chase</span> | [V] Change POV</p>
+        <p class="hint">[Shift] Engines | [WASD] Pitch/Roll | [R] Return to Earth</p>
+        <p><i>Fly to the Spinning Gate to change Galaxies!</i></p>
+    </div>
+    <div id="warp-msg">INITIATING INTERGALACTIC JUMP...</div>
+
+    <script type="module">
+        import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js';
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Lights ---
+        const sunLight = new THREE.PointLight(0xffffff, 8, 200000);
+        scene.add(sunLight);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+
+        // --- THE STARS (Back by demand!) ---
+        const starGeo = new THREE.BufferGeometry();
+        const starPos = [];
+        for(let i=0; i<20000; i++) {
+            starPos.push(THREE.MathUtils.randFloatSpread(500000), THREE.MathUtils.randFloatSpread(500000), THREE.MathUtils.randFloatSpread(500000));
+        }
+        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+        const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0xffffff, size: 4}));
+        scene.add(stars);
+
+        // --- ARTEMIS 2 SPACECRAFT ---
+        const artemis = new THREE.Group();
+        
+        // Service Module (Cylinder)
+        const serviceModule = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.6, 0.6, 1.2, 16),
+            new THREE.MeshStandardMaterial({color: 0xcccccc, metalness: 0.8})
+        );
+        serviceModule.rotation.x = Math.PI/2;
+        artemis.add(serviceModule);
+
+        // Orion Capsule (Cone/Top)
+        const capsule = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.2, 0.6, 0.7, 16),
+            new THREE.MeshStandardMaterial({color: 0x333333, metalness: 0.5})
+        );
+        capsule.rotation.x = Math.PI/2;
+        capsule.position.z = -0.95;
+        artemis.add(capsule);
+
+        // Solar Arrays (4 Wings)
+        const wingGeo = new THREE.BoxGeometry(2.5, 0.05, 0.5);
+        const wingMat = new THREE.MeshStandardMaterial({color: 0x003366});
+        for(let i=0; i<4; i++) {
+            const wing = new THREE.Mesh(wingGeo, wingMat);
+            wing.rotation.z = (Math.PI / 2) * i + (Math.PI / 4);
+            wing.position.z = 0.2;
+            artemis.add(wing);
+        }
+        scene.add(artemis);
+
+        // --- Intergalactic System ---
+        let planets = [];
+        const createPlanet = (name, radius, color, x) => {
+            const p = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 32), new THREE.MeshStandardMaterial({ color }));
+            p.position.set(x, 0, 0);
+            p.userData = { name, radius };
+            scene.add(p);
+            planets.push(p);
+        };
+
+        function generateGalaxy() {
+            planets.forEach(p => scene.remove(p));
+            planets = [];
+            createPlanet("Sun", 400, 0xffaa00, 0);
+            createPlanet("Mercury", 20, 0x888888, 1500);
+            createPlanet("Earth", 50, 0x2277ff, 3500);
+            createPlanet("Mars", 30, 0xff4400, 5000);
+            createPlanet("Jupiter", 120, 0xcca47e, 8000);
+            createPlanet("Saturn", 100, 0xead6b8, 12000);
+        }
+
+        // Warp Gate
+        const gate = new THREE.Mesh(new THREE.TorusGeometry(150, 10, 16, 100), new THREE.MeshBasicMaterial({color: 0x00ffff, wireframe: true}));
+        gate.position.set(20000, 0, 0);
+        scene.add(gate);
+
+        generateGalaxy();
+
+        // --- Control State ---
+        let velocity = new THREE.Vector3();
+        let povMode = 0;
+        const keys = {};
+
+        const reset = () => { artemis.position.set(3560, 0, 0); velocity.set(0,0,0); artemis.rotation.set(0, Math.PI/2, 0); };
+        reset();
+
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if(e.code === 'KeyV') povMode = (povMode + 1) % 3;
+            if(e.code === 'KeyR') reset();
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function update() {
+            let nearest = planets[0];
+            let minDist = Infinity;
+            planets.forEach(p => {
+                let d = artemis.position.distanceTo(p.position);
+                if(d < minDist) { minDist = d; nearest = p; }
+            });
+            document.getElementById('target').innerText = nearest.userData.name;
+
+            // Movement
+            if (keys['ShiftLeft']) velocity.add(new THREE.Vector3(0,0,-0.12).applyQuaternion(artemis.quaternion));
+            if (keys['KeyW']) artemis.rotateX(0.03);
+            if (keys['KeyS']) artemis.rotateX(-0.03);
+            if (keys['KeyA']) artemis.rotateZ(0.04);
+            if (keys['KeyD']) artemis.rotateZ(-0.04);
+
+            artemis.position.add(velocity);
+            velocity.multiplyScalar(0.97); // Smooth braking
+
+            // Warp Logic
+            if(artemis.position.distanceTo(gate.position) < 150) {
+                document.getElementById('warp-msg').style.display = 'block';
+                setTimeout(() => { generateGalaxy(); reset(); document.getElementById('warp-msg').style.display = 'none'; }, 1500);
+            }
+
+            // Camera POV
+            let camOff, lookAt;
+            const pNames = ["Chase", "Cockpit", "Top-Down"];
+            document.getElementById('povName').innerText = pNames[povMode];
+
+            if(povMode === 0) { camOff = new THREE.Vector3(0, 5, 15).applyMatrix4(artemis.matrixWorld); lookAt = artemis.position; }
+            else if(povMode === 1) { camOff = new THREE.Vector3(0, 0.2, -1.2).applyMatrix4(artemis.matrixWorld); lookAt = new THREE.Vector3(0,0,-20).applyMatrix4(artemis.matrixWorld); }
+            else { camOff = new THREE.Vector3(0, 40, 0).applyMatrix4(artemis.matrixWorld); lookAt = artemis.position; }
+
+            camera.position.lerp(camOff, 0.1);
+            camera.lookAt(lookAt);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            gate.rotation.y += 0.05;
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>

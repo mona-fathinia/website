@@ -1,0 +1,215 @@
+
+
+       
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tank War: Manual Easy Mode</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #222; font-family: 'Arial Black', sans-serif; touch-action: none; -webkit-user-select: none; }
+        canvas { display: block; background: #4b6121; }
+        
+        #ui { position: absolute; top: 15px; left: 15px; color: white; pointer-events: none; z-index: 10; }
+        #hpBar { width: 150px; height: 12px; background: #333; border: 2px solid white; margin-top: 5px; border-radius: 10px; overflow: hidden;}
+        #hpFill { width: 100%; height: 100%; background: #00ff00; }
+
+        /* CONTROLS */
+        .ctrl { position: absolute; z-index: 20; }
+        #joyContainer { 
+            bottom: 40px; left: 40px; width: 140px; height: 140px; 
+            background: rgba(255,255,255,0.1); border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; 
+        }
+        #stick { position: absolute; top: 35px; left: 35px; width: 70px; height: 70px; background: rgba(255,255,255,0.7); border-radius: 50%; }
+        
+        #shootBtn { 
+            bottom: 40px; right: 40px; width: 130px; height: 130px; 
+            background: radial-gradient(#ff4444, #aa0000); border: 5px solid white; 
+            border-radius: 50%; color: white; display: flex; align-items: center; 
+            justify-content: center; font-size: 28px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; color: white; }
+        button { padding: 20px 60px; font-size: 30px; background: #7aa331; color: white; border: none; border-radius: 50px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        LEVEL: <span id="lvl">1</span> | SCORE: <span id="cns">0</span>
+        <div style="margin-top:10px">SHIELD</div>
+        <div id="hpBar"><div id="hpFill"></div></div>
+    </div>
+
+    <div id="startMenu" class="overlay">
+        <h1>EASY MODE</h1>
+        <p>Use the BIG RED BUTTON to shoot!</p>
+        <button onclick="startGame()">START</button>
+    </div>
+
+    <div id="gameMenu" class="overlay" style="display:none;">
+        <h1 id="mTitle">VICTORY</h1>
+        <button onclick="restart()">CONTINUE</button>
+    </div>
+
+    <div id="joyContainer" class="ctrl"><div id="stick"></div></div>
+    <div id="shootBtn" class="ctrl">FIRE</div>
+
+    <canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const joyContainer = document.getElementById("joyContainer");
+const stick = document.getElementById("stick");
+const shootBtn = document.getElementById("shootBtn");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let level = 1, score = 0, hp = 3, gameState = "START";
+let keys = {}, moveDir = { x: 0, y: 0 };
+let scenery = [], bullets = [], enemyBullets = [];
+
+function initScenery() {
+    scenery = [];
+    for(let i=0; i<30; i++) {
+        scenery.push({
+            x: Math.random()*canvas.width, 
+            y: Math.random()*canvas.height, 
+            type: Math.random() > 0.7 ? 'tree' : 'grass',
+            size: 10 + Math.random() * 20
+        });
+    }
+}
+
+class Tank {
+    constructor(x, y, color, isPlayer) {
+        this.x = x; this.y = y; this.color = color;
+        this.isPlayer = isPlayer;
+        this.angle = isPlayer ? -Math.PI/2 : Math.PI/2;
+        this.speed = isPlayer ? 6 : 2;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+        ctx.fillStyle = "#111"; ctx.fillRect(-24, -18, 48, 36); 
+        ctx.fillStyle = this.color; ctx.fillRect(-20, -14, 40, 28); 
+        ctx.fillStyle = "#333"; ctx.fillRect(0, -4, 40, 8); 
+        ctx.restore();
+    }
+
+    fire() {
+        bullets.push({
+            x: this.x + Math.cos(this.angle)*40, 
+            y: this.y + Math.sin(this.angle)*40, 
+            vx: Math.cos(this.angle)*15, 
+            vy: Math.sin(this.angle)*15
+        });
+    }
+}
+
+let player, enemies = [];
+
+window.onkeydown = e => { keys[e.key.toLowerCase()] = true; if(e.key === " ") player.fire(); };
+window.onkeyup = e => keys[e.key.toLowerCase()] = false;
+
+// JOYSTICK
+function handleTouch(e) {
+    e.preventDefault();
+    let t = e.touches[0];
+    let r = joyContainer.getBoundingClientRect();
+    let dx = t.clientX - (r.left + r.width/2), dy = t.clientY - (r.top + r.height/2);
+    let dist = Math.min(Math.hypot(dx, dy), 60);
+    let ang = Math.atan2(dy, dx);
+    stick.style.transform = `translate(${Math.cos(ang)*dist}px, ${Math.sin(ang)*dist}px)`;
+    moveDir = { x: Math.cos(ang) * (dist/60), y: Math.sin(ang) * (dist/60) };
+}
+joyContainer.addEventListener("touchstart", handleTouch);
+joyContainer.addEventListener("touchmove", handleTouch);
+window.addEventListener("touchend", () => { stick.style.transform = "translate(0,0)"; moveDir = {x:0, y:0}; });
+
+// MANUAL FIRE BUTTON
+shootBtn.addEventListener("touchstart", (e) => { e.preventDefault(); player.fire(); });
+
+function startGame() { initScenery(); document.getElementById("startMenu").style.display = "none"; restart(); }
+function restart() {
+    hp = 3; document.getElementById("hpFill").style.width = "100%";
+    player = new Tank(canvas.width/2, canvas.height-100, "#7aa331", true);
+    enemies = []; for(let i=0; i<level; i++) enemies.push(new Tank(Math.random()*canvas.width, 100, "#d32f2f", false));
+    bullets = []; enemyBullets = [];
+    gameState = "PLAYING";
+    document.getElementById("gameMenu").style.display = "none";
+    document.getElementById("lvl").innerText = level;
+}
+
+function loop() {
+    ctx.fillStyle = "#4b6121"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Scenery
+    scenery.forEach(s => {
+        ctx.fillStyle = s.type === 'tree' ? "#2e7d32" : "#a1c181";
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI*2); ctx.fill();
+    });
+
+    if (gameState === "PLAYING") {
+        // Player Move
+        let dx = 0, dy = 0;
+        if (keys['w'] || keys['arrowup']) { dx += Math.cos(player.angle)*player.speed; dy += Math.sin(player.angle)*player.speed; }
+        if (keys['s'] || keys['arrowdown']) { dx -= Math.cos(player.angle)*player.speed; dy -= Math.sin(player.angle)*player.speed; }
+        if (keys['a'] || keys['arrowleft']) player.angle -= 0.08;
+        if (keys['d'] || keys['arrowright']) player.angle += 0.08;
+        if (moveDir.x !== 0 || moveDir.y !== 0) {
+            player.angle = Math.atan2(moveDir.y, moveDir.x);
+            dx = moveDir.x * player.speed; dy = moveDir.y * player.speed;
+        }
+        player.x = Math.max(20, Math.min(canvas.width - 20, player.x + dx));
+        player.y = Math.max(20, Math.min(canvas.height - 20, player.y + dy));
+        player.draw();
+
+        // Player Bullets
+        bullets.forEach((b, bi) => {
+            b.x += b.vx; b.y += b.vy;
+            ctx.fillStyle = "#00ffff"; ctx.beginPath(); ctx.arc(b.x, b.y, 8, 0, Math.PI*2); ctx.fill();
+            enemies.forEach((e, ei) => {
+                if (Math.hypot(b.x - e.x, b.y - e.y) < 30) {
+                    enemies.splice(ei, 1); bullets.splice(bi, 1);
+                    score += 50; document.getElementById("cns").innerText = score;
+                }
+            });
+            if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) bullets.splice(bi, 1);
+        });
+
+        // Enemies
+        enemies.forEach(e => {
+            e.x += Math.cos(e.angle) * e.speed;
+            e.y += Math.sin(e.angle) * e.speed;
+            if (Math.random() > 0.98) e.angle += (Math.random()-0.5);
+            if (e.x < 20 || e.x > canvas.width-20 || e.y < 20 || e.y > canvas.height-20) e.angle += Math.PI;
+            if (Math.random() > 0.995) enemyBullets.push({x: e.x, y: e.y, vx: Math.cos(e.angle)*7, vy: Math.sin(e.angle)*7});
+            e.draw();
+        });
+
+        // Enemy Bullets
+        enemyBullets.forEach((eb, ebi) => {
+            eb.x += eb.vx; eb.y += eb.vy;
+            ctx.fillStyle = "#ffaa00"; ctx.beginPath(); ctx.arc(eb.x, eb.y, 6, 0, Math.PI*2); ctx.fill();
+            if (Math.hypot(eb.x - player.x, eb.y - player.y) < 25) {
+                enemyBullets.splice(ebi, 1);
+                hp--; document.getElementById("hpFill").style.width = (hp/3)*100 + "%";
+                if(hp <= 0) { gameState = "MENU"; document.getElementById("mTitle").innerText = "RETRY?"; document.getElementById("gameMenu").style.display = "flex"; }
+            }
+        });
+
+        if (enemies.length === 0) { level++; gameState = "MENU"; document.getElementById("mTitle").innerText = "LEVEL CLEAR!"; document.getElementById("gameMenu").style.display = "flex"; }
+    }
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
